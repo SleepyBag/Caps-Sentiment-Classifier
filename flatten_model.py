@@ -36,11 +36,9 @@ class CSC(object):
         self.E = args['cls_cnt']
         self.usr_cnt = args['usr_cnt']
         self.prd_cnt = args['prd_cnt']
-        self.sen_hop_cnt = args['sen_hop_cnt']
-        self.doc_hop_cnt = args['doc_hop_cnt']
         self.l2_rate = args['l2_rate']
-        self.aspect_cnt = 5
-        # self.convert_flag = args['convert_flag']
+        self.sen_aspect_cnt = args['sen_aspect_cnt']
+        self.aspect_cnt = args['doc_aspect_cnt']
         # self.debug = args['debug']
         # self.lambda1 = args['lambda1']
         # self.lambda2 = args['lambda2']
@@ -54,17 +52,14 @@ class CSC(object):
         self.weights_initializer = tf.contrib.layers.xavier_initializer()
         self.biases_initializer = tf.initializers.zeros()
         self.emb_initializer = tf.contrib.layers.xavier_initializer()
-        # self.weights_initializer = tf.initializers.random_uniform(-.01, .01)
-        # self.biases_initializer = tf.initializers.random_uniform(-.01, .01)
-        # self.emb_initializer = tf.initializers.random_uniform(-.01, .01)
 
         hsize = self.hidden_size
 
         # embeddings in the model
         with tf.variable_scope('emb'):
             self.embeddings = {
-                'wrd_emb': const(self.embedding, name='wrd_emb', dtype=tf.float32),
-                # 'wrd_emb': tf.Variable(embedding, name='wrd_emb', dtype=tf.float32),
+                # 'wrd_emb': const(self.embedding, name='wrd_emb', dtype=tf.float32),
+                'wrd_emb': tf.Variable(self.embedding, name='wrd_emb', dtype=tf.float32),
                 'usr_emb': var('usr_emb', [self.usr_cnt, hsize], self.emb_initializer),
                 'prd_emb': var('prd_emb', [self.prd_cnt, hsize], self.emb_initializer)
             }
@@ -86,6 +81,7 @@ class CSC(object):
         sen_len = tf.reshape(sen_len, [-1], name='sen_len')
 
         d = self.hidden_size
+
         # lstm_output should be tensor with shape
         # [batch_size*max_doc_len, max_sen_len, hidden_size]
         # here a real batch is considered as max_doc_len batches
@@ -93,46 +89,58 @@ class CSC(object):
         lstm_output = tf.reshape(lstm_output, [-1, max_sen_len, self.hidden_size, 1],
                                  name='lstm_output')
 
+        # activation = tf.layers.conv2d(lstm_output, 1, [1, self.hidden_size])
+        # activation = tf.reshape(activation, [-1, max_sen_len])
+        # activation = tf.nn.softmax(activation)
+
         # caps_sen should be tensor with shape
         # [batch_size*max_doc_len, aspect_cnt, d, 1]
         # here a real batch is considered as max_doc_len batches
-        activation = tf.zeros([1, max_sen_len])
-        caps_sen, _ = cl.layers.dense(inputs=lstm_output, activation=activation,
-                                      num_outputs=self.aspect_cnt, out_caps_dims=[d, 1],
-                                      sequence_length=sen_len, max_length=max_sen_len,
-                                      share=True,
-                                      routing_method='DynamicRouting', name='lstm_to_caps')
+        activation = tf.zeros([1, 1])
+        # lstm_output = sen_x[:, :, :, None]
+        caps_sen, activation = cl.layers.dense(inputs=lstm_output,
+                                               activation=activation,
+                                               num_outputs=self.aspect_cnt,
+                                               out_caps_dims=[d, 1],
+                                               sequence_length=sen_len,
+                                               max_length=max_sen_len,
+                                               share=True,
+                                               identity=[usr, prd],
+                                               identity_dim=self.hidden_size,
+                                               routing_method='DynamicRouting',
+                                               name='lstm_to_caps')
+
         caps_sen = tf.reshape(caps_sen, [-1, max_doc_len * self.aspect_cnt, d, 1], name='caps_sen')
 
-        # # caps_doc should be tensor with shape
-        # # [batch_size, aspect_cnt, d, 1]
+        activation = tf.reshape(activation, [-1, max_doc_len * self.aspect_cnt])
+        # caps_doc should be tensor with shape
+        # [batch_size, aspect_cnt, d, 1]
+        # here a real batch is considered as max_doc_len batches
+        caps_doc, activation = cl.layers.dense(inputs=caps_sen,
+                                               activation=activation,
+                                               num_outputs=self.aspect_cnt,
+                                               out_caps_dims=[d, 1],
+                                               sequence_length=doc_len * self.aspect_cnt,
+                                               max_length=max_doc_len * self.aspect_cnt,
+                                               share=True,
+                                               identity=[usr, prd],
+                                               identity_dim=self.hidden_size,
+                                               routing_method='DynamicRouting',
+                                               name='sen_to_doc')
+
+        # caps_doc = tf.reshape(caps_doc, [-1, self.aspect_cnt, d])
+        # # lstm_output should be tensor with shape
+        # # [batch_size*max_doc_len, max_sen_len, hidden_size]
         # # here a real batch is considered as max_doc_len batches
-        # activation = tf.zeros([1, max_doc_len * self.aspect_cnt])
-        # caps_doc, _ = cl.layers.dense(inputs=caps_sen, activation=activation,
-        #                               num_outputs=self.aspect_cnt, out_caps_dims=[d, 1],
-        #                               sequence_length=doc_len * self.aspect_cnt,
-        #                               share=True,
-        #                               max_length=max_doc_len * self.aspect_cnt,
-        #                               routing_method='DynamicRouting', name='sen_to_doc')
+        # caps_doc, _state = lstm(caps_doc, doc_len, self.hidden_size, 'caps_doc_to_lstm')
+        # caps_doc = tf.reshape(caps_doc, [-1, self.hidden_size, 1], name='caps_doc2')
 
-        # fccaps should be tensor with shape
-        # [batch_size, cls_cnt, d, 1]
-        activation = tf.zeros([1, self.aspect_cnt])
-        fccaps, _ = cl.layers.dense(inputs=caps_sen, activation=activation,
-                                    sequence_length=None, max_length=None,
-                                    share=True,
-                                    num_outputs=self.cls_cnt,
-                                    out_caps_dims=[d, 1], routing_method='DynamicRouting',
-                                    name='aspect_to_rating')
-        fccaps = tf.reshape(fccaps, [-1, self.cls_cnt, d])
+        # caps_sen = tf.reshape(caps_sen, [-1, max_doc_len, self.aspect_cnt, d, 1], name='caps_sen')
+        # caps_doc = tf.reduce_mean(caps_sen, axis=1)
 
-        # flatten_aspects should be a tensor with shape
-        # [batch_size, cls_cnt]
-        flatten_aspects = tf.norm(fccaps, axis=2, name='flatten_aspects')
-        # flatten_aspects = tf.reduce_sum(fccaps ** 2, axis=2)
-        # flatten_aspects = tf.sqrt(flatten_aspects, name='flatten_aspects')
+        caps_doc = tf.layers.flatten(caps_doc)
+        outputs = tf.layers.dense(caps_doc, self.cls_cnt)
 
-        outputs = flatten_aspects
         return outputs
 
     def build(self, data_iter):
@@ -156,21 +164,22 @@ class CSC(object):
         # predictionp = tf.argmax(d_hatp, 1, name='predictionp')
 
         with tf.variable_scope("loss"):
-            import ipdb
-            ipdb.set_trace()
-            y = tf.one_hot(input_y, self.cls_cnt)
-            max_l = tf.square(tf.maximum(0., .9 - d_hat))
-            max_r = tf.square(tf.maximum(0., d_hat - .1))
-
-            l_c = y * max_l + .5 * (1 - y) * max_r
-            l_c = tf.reduce_sum(l_c)
+            sce = tf.nn.softmax_cross_entropy_with_logits_v2
+            self.loss = sce(logits=d_hat, labels=tf.one_hot(input_y, self.cls_cnt))
+            # y = tf.one_hot(input_y, self.cls_cnt)
+            # sign = 2 * y - 1
+            # M = .8 * y + .1
+            # # lam = .5 + .5 * y
+            # lam = 1
+            # loss = sign * (M - d_hat)
+            # self.loss = lam * (tf.cast(loss > 0, tf.float32) * loss) ** 2
 
             regularizer = tf.zeros(1)
             params = tf.trainable_variables()
             for param in params:
                 if param not in self.embeddings.values():
                     regularizer += tf.nn.l2_loss(param)
-            self.loss = tf.reduce_mean(l_c) + self.l2_rate * regularizer
+            self.loss = tf.reduce_mean(self.loss) + self.l2_rate * regularizer
 
         with tf.variable_scope("metrics"):
             correct_prediction = tf.equal(prediction, input_y)
@@ -205,6 +214,13 @@ class CSC(object):
 
     def train(self, optimizer, global_step):
         grads_and_vars = optimizer.compute_gradients(self.loss)
+        capped_grads_and_vars = []
 
-        train_op = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
+        for grad, var in grads_and_vars:
+            if var is self.embeddings['wrd_emb']:
+                grad = tf.IndexedSlices(grad.values * 1e-5 * tf.cast(global_step > 3000, tf.float32),
+                                        grad.indices, grad.dense_shape)
+            capped_grads_and_vars.append((grad, var))
+
+        train_op = optimizer.apply_gradients(capped_grads_and_vars, global_step=global_step)
         return train_op

@@ -50,6 +50,9 @@ def build_dataset(filenames, tfrecords_filenames, stats_filename, embedding_file
                 if hierarchy:
                     feature['sen_len'] = byteslist([item[1]['sen_len']])
                     feature['doc_len'] = int64list([item[1]['doc_len']])
+                else:
+                    feature['sen_len'] = int64list([item[1]['sen_len']])
+                    feature['doc_len'] = int64list([item[1]['doc_len']])
 
                 example = tf.train.Example(features=tf.train.Features(feature=feature))
                 writer.write(example.SerializeToString())
@@ -70,6 +73,9 @@ def build_dataset(filenames, tfrecords_filenames, stats_filename, embedding_file
             'content': tf.FixedLenFeature(shape=(), dtype=tf.string, default_value=None)}
         if hierarchy:
             dics['sen_len'] = tf.FixedLenFeature(shape=(), dtype=tf.string, default_value=None)
+            dics['doc_len'] = tf.FixedLenFeature(shape=(), dtype=tf.int64, default_value=None)
+        else:
+            dics['sen_len'] = tf.FixedLenFeature(shape=(), dtype=tf.int64, default_value=None)
             dics['doc_len'] = tf.FixedLenFeature(shape=(), dtype=tf.int64, default_value=None)
 
         ans = tf.parse_single_example(example, dics)
