@@ -21,7 +21,7 @@ import tensorflow as tf
 import capslayer as cl
 
 
-def transforming(inputs, num_outputs, out_caps_dims, share, identity, identity_dim, name=None):
+def transforming(inputs, num_outputs, out_caps_dims, share, identity, identity_dim, transform, name=None):
     """
     Args:
         inputs: A 4-D or 6-D tensor, [batch_size, num_inputs] + in_caps_dims or [batch_size, height, width, channels] + in_caps_dims.
@@ -34,8 +34,6 @@ def transforming(inputs, num_outputs, out_caps_dims, share, identity, identity_d
     """
     name = "transforming" if name is None else name
     with tf.variable_scope(name) as scope:
-        import ipdb
-        ipdb.set_trace()
         input_shape = cl.shape(inputs)
         prefix_shape = [1 for i in range(len(input_shape) - 3)] + input_shape[-3:-2] + [num_outputs]
         prefix_shape[1] = 1
@@ -48,17 +46,24 @@ def transforming(inputs, num_outputs, out_caps_dims, share, identity, identity_d
         expand_axis = -2
         reduce_sum_axis = -3
 
+        import ipdb
+        ipdb.set_trace()
         in_pose = tf.expand_dims(inputs, axis=-3)
         ones = tf.ones(shape=prefix_shape + [1, 1])
         in_pose = tf.expand_dims(in_pose * ones, axis=expand_axis)
         transform_mat = tf.get_variable("transformation_matrix", shape=shape)
-        votes = tf.reduce_sum(in_pose * transform_mat, axis=reduce_sum_axis)
+        bias = tf.get_variable('transformation_bias', shape=[num_outputs] + out_caps_dims)
+        if transform:
+            votes = tf.reduce_sum(in_pose * transform_mat, axis=reduce_sum_axis)
+            votes += bias
+        else:
+            votes = in_pose + bias[:, :, :, None]
+            votes = tf.reduce_sum(votes, axis=-1)
+            votes += bias
         # dim = shape[-2]
         # for n, i in enumerate(identity):
-        #     import ipdb
-        #     ipdb.set_trace()
         #     bias_mat = tf.get_variable('transformation_bias' + str(n), shape=[identity_dim, dim])
-        #     bias = tf.matmul(i, bias_mat)
+        #     bias = tf.matmul(i, bias_mat)[:, None, None, :, None]
         #     votes += bias
 
         return votes

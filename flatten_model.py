@@ -21,6 +21,31 @@ def var(name, shape, initializer):
     return tf.get_variable(name, shape=shape, initializer=initializer)
 
 
+def attention(hidden, context, hidden_size,
+              weights_initializer, biases_initializer):
+    max_length = hidden.shape[1]
+    with tf.variable_scope('attention'):
+        wh = var('wh', [hidden.shape[2], hidden_size], weights_initializer)
+        wi = var('wi', [context.shape[1], hidden_size], weights_initializer)
+        b = var('b', [hidden_size], biases_initializer)
+        v = var('v', [hidden_size, 1], None)
+
+        h = tf.reshape(hidden, [-1, hidden_size])
+        h = tf.matmul(h, wh)
+        e = tf.reshape(h + b, [-1, max_length, hidden_size])
+        e = e + tf.matmul(context, wi)[:, None, :]
+        e = tf.tanh(e)
+        e = tf.reshape(e, [-1, hidden_size])
+        e = tf.reshape(tf.matmul(e, v), [-1, max_length])
+        e = tf.nn.softmax(e)
+        # mask = tf.sequence_mask(sequence_length, max_length, dtype=tf.float32)
+        # e = (e * mask)[:, None, :]
+        # _sum = tf.reduce_sum(e, reduction_indices=2, keepdims=True) + 1e-9
+        # e = e / _sum
+        # e = tf.identity(e, name='attention_without_null_word')
+    return e
+
+
 class CSC(object):
 
     def __init__(self, args):
@@ -38,7 +63,7 @@ class CSC(object):
         self.prd_cnt = args['prd_cnt']
         self.l2_rate = args['l2_rate']
         self.sen_aspect_cnt = args['sen_aspect_cnt']
-        self.aspect_cnt = args['doc_aspect_cnt']
+        self.doc_aspect_cnt = args['doc_aspect_cnt']
         # self.debug = args['debug']
         # self.lambda1 = args['lambda1']
         # self.lambda2 = args['lambda2']
@@ -100,45 +125,44 @@ class CSC(object):
         # lstm_output = sen_x[:, :, :, None]
         caps_sen, activation = cl.layers.dense(inputs=lstm_output,
                                                activation=activation,
-                                               num_outputs=self.aspect_cnt,
+                                               num_outputs=self.sen_aspect_cnt,
                                                out_caps_dims=[d, 1],
                                                sequence_length=sen_len,
                                                max_length=max_sen_len,
                                                share=True,
-                                               identity=[usr, prd],
+                                               transform=False,
+                                               identity=[tf.reshape(tf.tile(usr, [1, self.max_doc_len]), [-1, self.hidden_size]),
+                                                         tf.reshape(tf.tile(prd, [1, self.max_doc_len]), [-1, self.hidden_size])],
                                                identity_dim=self.hidden_size,
                                                routing_method='DynamicRouting',
                                                name='lstm_to_caps')
 
-        caps_sen = tf.reshape(caps_sen, [-1, max_doc_len * self.aspect_cnt, d, 1], name='caps_sen')
+        caps_sen = tf.reshape(caps_sen, [-1, max_doc_len * self.sen_aspect_cnt, d, 1], name='caps_sen')
 
-        activation = tf.reshape(activation, [-1, max_doc_len * self.aspect_cnt])
+        activation = tf.reshape(activation, [-1, max_doc_len * self.sen_aspect_cnt])
         # caps_doc should be tensor with shape
         # [batch_size, aspect_cnt, d, 1]
         # here a real batch is considered as max_doc_len batches
         caps_doc, activation = cl.layers.dense(inputs=caps_sen,
                                                activation=activation,
-                                               num_outputs=self.aspect_cnt,
+                                               num_outputs=self.doc_aspect_cnt,
                                                out_caps_dims=[d, 1],
-                                               sequence_length=doc_len * self.aspect_cnt,
-                                               max_length=max_doc_len * self.aspect_cnt,
+                                               sequence_length=doc_len * self.sen_aspect_cnt,
+                                               max_length=max_doc_len * self.sen_aspect_cnt,
                                                share=True,
+                                               transform=True,
                                                identity=[usr, prd],
                                                identity_dim=self.hidden_size,
                                                routing_method='DynamicRouting',
                                                name='sen_to_doc')
 
-        # caps_doc = tf.reshape(caps_doc, [-1, self.aspect_cnt, d])
-        # # lstm_output should be tensor with shape
-        # # [batch_size*max_doc_len, max_sen_len, hidden_size]
-        # # here a real batch is considered as max_doc_len batches
-        # caps_doc, _state = lstm(caps_doc, doc_len, self.hidden_size, 'caps_doc_to_lstm')
-        # caps_doc = tf.reshape(caps_doc, [-1, self.hidden_size, 1], name='caps_doc2')
-
-        # caps_sen = tf.reshape(caps_sen, [-1, max_doc_len, self.aspect_cnt, d, 1], name='caps_sen')
-        # caps_doc = tf.reduce_mean(caps_sen, axis=1)
-
+        # caps_doc = tf.reshape(caps_doc, [-1, self.doc_aspect_cnt, self.hidden_size])
+        # alpha = attention(caps_doc, tf.concat([usr, prd], axis=1), self.hidden_size,
+        #                   tf.contrib.layers.xavier_initializer(), tf.initializers.zeros())
+        # caps_doc = tf.reduce_sum(caps_doc * alpha[:, :, None], axis=1)
         caps_doc = tf.layers.flatten(caps_doc)
+        caps_doc = tf.concat([usr, prd, caps_doc], axis=1)
+        caps_doc = tf.layers.dense(caps_doc, self.hidden_size, activation=None)
         outputs = tf.layers.dense(caps_doc, self.cls_cnt)
 
         return outputs
@@ -218,7 +242,7 @@ class CSC(object):
 
         for grad, var in grads_and_vars:
             if var is self.embeddings['wrd_emb']:
-                grad = tf.IndexedSlices(grad.values * 1e-5 * tf.cast(global_step > 3000, tf.float32),
+                grad = tf.IndexedSlices(grad.values * 1e-5 * tf.cast(global_step > 4000, tf.float32),
                                         grad.indices, grad.dense_shape)
             capped_grads_and_vars.append((grad, var))
 

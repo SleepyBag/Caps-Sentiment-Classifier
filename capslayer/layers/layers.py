@@ -37,6 +37,7 @@ def dense(inputs, activation,
           share,
           identity,
           identity_dim,
+          transform,
           routing_method='EMRouting',
           coordinate_addition=False,
           reuse=None,
@@ -58,7 +59,7 @@ def dense(inputs, activation,
         if reuse:
             scope.reuse()
         if coordinate_addition and len(inputs.shape) == 6 and len(activation.shape) == 4:
-            vote = transforming(inputs, num_outputs=num_outputs, out_caps_dims=out_caps_dims, identity=identity, identity_dim=identity_dim)
+            vote = transforming(inputs, transform=transform, num_outputs=num_outputs, out_caps_dims=out_caps_dims, identity=identity, identity_dim=identity_dim)
             with tf.name_scope("coodinate_addition"):
                 batch_size, in_height, in_width, in_channels, _, out_caps_height, out_caps_width = cl.shape(vote)
                 num_inputs = in_height * in_width * in_channels
@@ -83,7 +84,7 @@ def dense(inputs, activation,
                 activation = tf.reshape(activation, shape=[batch_size, num_inputs])
 
         elif len(inputs.shape) == 4 and len(activation.shape) == 2:
-            vote = transforming(inputs, share=share, num_outputs=num_outputs, out_caps_dims=out_caps_dims, identity=identity, identity_dim=identity_dim)
+            vote = transforming(inputs, transform=transform, share=share, num_outputs=num_outputs, out_caps_dims=out_caps_dims, identity=identity, identity_dim=identity_dim)
 
         else:
             raise TypeError("Wrong rank for inputs or activation")

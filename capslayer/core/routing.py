@@ -90,10 +90,15 @@ def dynamicRouting(votes,
     vote_shape = cl.shape(votes)
     logit_shape = vote_shape[:-2] + [1, 1]
     logits = tf.fill(logit_shape, 0.0)
+
+    # v = tf.get_variable('v', vote_shape[-3:])
+    # logits = tf.reduce_sum(v * votes, axis=-2, keepdims=True)
+
     # conv_votes = tf.reduce_sum(votes, axis=2)
     # conv_votes = tf.pad(conv_votes, [[0, 0], [2, 2], [0, 0], [0, 0]])
-    # logits = tf.layers.conv2d(conv_votes, 1, kernel_size=[5, 32], padding='valid')
+    # logits = tf.layers.conv2d(conv_votes, 3, kernel_size=[1, 32], padding='valid')
     # logits = logits[:, :, :, :, None]
+    # logits = tf.transpose(logits, [0, 1, 3, 2, 4])
 
     squash_on = -2 if vote_shape[-1] == 1 else [-2, -1]
     if use_bias:
