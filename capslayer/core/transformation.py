@@ -21,7 +21,8 @@ import tensorflow as tf
 import capslayer as cl
 
 
-def transforming(inputs, num_outputs, out_caps_dims, share, identity, identity_dim, transform, name=None):
+def transforming(inputs, num_outputs, out_caps_dims, share, transform,
+                 identity=None, identity_dim=None, name=None):
     """
     Args:
         inputs: A 4-D or 6-D tensor, [batch_size, num_inputs] + in_caps_dims or [batch_size, height, width, channels] + in_caps_dims.
@@ -46,8 +47,6 @@ def transforming(inputs, num_outputs, out_caps_dims, share, identity, identity_d
         expand_axis = -2
         reduce_sum_axis = -3
 
-        import ipdb
-        ipdb.set_trace()
         in_pose = tf.expand_dims(inputs, axis=-3)
         ones = tf.ones(shape=prefix_shape + [1, 1])
         in_pose = tf.expand_dims(in_pose * ones, axis=expand_axis)
@@ -58,12 +57,13 @@ def transforming(inputs, num_outputs, out_caps_dims, share, identity, identity_d
             votes += bias
         else:
             votes = in_pose + bias[:, :, :, None]
-            votes = tf.reduce_sum(votes, axis=-1)
-            votes += bias
-        # dim = shape[-2]
-        # for n, i in enumerate(identity):
-        #     bias_mat = tf.get_variable('transformation_bias' + str(n), shape=[identity_dim, dim])
-        #     bias = tf.matmul(i, bias_mat)[:, None, None, :, None]
-        #     votes += bias
+            votes = tf.reduce_sum(in_pose, axis=-1)
+
+        if identity is not None:
+            dim = shape[-2]
+            for n, i in enumerate(identity):
+                bias_mat = tf.get_variable('transformation_bias' + str(n), shape=[identity_dim, dim])
+                bias = tf.matmul(i, bias_mat)[:, None, None, :, None]
+                votes += bias
 
         return votes

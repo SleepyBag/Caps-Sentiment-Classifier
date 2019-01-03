@@ -64,6 +64,8 @@ class CSC(object):
         self.l2_rate = args['l2_rate']
         self.sen_aspect_cnt = args['sen_aspect_cnt']
         self.doc_aspect_cnt = args['doc_aspect_cnt']
+        self.batch_size = args['batch_size']
+        self.words_train_step = args['words_train_step']
         # self.debug = args['debug']
         # self.lambda1 = args['lambda1']
         # self.lambda2 = args['lambda2']
@@ -85,8 +87,6 @@ class CSC(object):
             self.embeddings = {
                 # 'wrd_emb': const(self.embedding, name='wrd_emb', dtype=tf.float32),
                 'wrd_emb': tf.Variable(self.embedding, name='wrd_emb', dtype=tf.float32),
-                'usr_emb': var('usr_emb', [self.usr_cnt, hsize], self.emb_initializer),
-                'prd_emb': var('prd_emb', [self.prd_cnt, hsize], self.emb_initializer)
             }
 
         # for tensorboard
@@ -100,7 +100,7 @@ class CSC(object):
     def get_bias(self, name, shape):
         return var(name, shape, self.biases_initializer)
 
-    def csc(self, x, max_sen_len, max_doc_len, sen_len, doc_len, usr, prd):
+    def csc(self, x, max_sen_len, max_doc_len, sen_len, doc_len, usrid, prdid):
         # spilt each batch into max_doc_len ones
         sen_x = tf.reshape(x, [-1, max_sen_len, self.emb_dim], name='sentence_x')
         sen_len = tf.reshape(sen_len, [-1], name='sen_len')
@@ -118,6 +118,11 @@ class CSC(object):
         # activation = tf.reshape(activation, [-1, max_sen_len])
         # activation = tf.nn.softmax(activation)
 
+        usr_emb_cap = var('usr_emb_cap', [self.usr_cnt, self.hidden_size], self.emb_initializer)
+        prd_emb_cap = var('prd_emb_cap', [self.prd_cnt, self.hidden_size], self.emb_initializer)
+        usr_cap = lookup(usr_emb_cap, usrid)
+        prd_cap = lookup(prd_emb_cap, prdid)
+
         # caps_sen should be tensor with shape
         # [batch_size*max_doc_len, aspect_cnt, d, 1]
         # here a real batch is considered as max_doc_len batches
@@ -131,12 +136,13 @@ class CSC(object):
                                                max_length=max_sen_len,
                                                share=True,
                                                transform=False,
-                                               identity=[tf.reshape(tf.tile(usr, [1, self.max_doc_len]), [-1, self.hidden_size]),
-                                                         tf.reshape(tf.tile(prd, [1, self.max_doc_len]), [-1, self.hidden_size])],
-                                               identity_dim=self.hidden_size,
+                                               # identity=[tf.reshape(tf.tile(usr_cap, [1, self.max_doc_len]), [-1, self.hidden_size]),
+                                               #           tf.reshape(tf.tile(prd_cap, [1, self.max_doc_len]), [-1, self.hidden_size])],
+                                               # identity_dim=self.hidden_size,
                                                routing_method='DynamicRouting',
                                                name='lstm_to_caps')
 
+        caps_sen = caps_sen[:, :self.sen_aspect_cnt, :, :]
         caps_sen = tf.reshape(caps_sen, [-1, max_doc_len * self.sen_aspect_cnt, d, 1], name='caps_sen')
 
         activation = tf.reshape(activation, [-1, max_doc_len * self.sen_aspect_cnt])
@@ -151,17 +157,24 @@ class CSC(object):
                                                max_length=max_doc_len * self.sen_aspect_cnt,
                                                share=True,
                                                transform=True,
-                                               identity=[usr, prd],
-                                               identity_dim=self.hidden_size,
+                                               # identity=[usr_cap, prd_cap],
+                                               # identity_dim=self.hidden_size,
                                                routing_method='DynamicRouting',
                                                name='sen_to_doc')
 
+        caps_doc = caps_doc[:, :self.doc_aspect_cnt, :, :]
         # caps_doc = tf.reshape(caps_doc, [-1, self.doc_aspect_cnt, self.hidden_size])
         # alpha = attention(caps_doc, tf.concat([usr, prd], axis=1), self.hidden_size,
         #                   tf.contrib.layers.xavier_initializer(), tf.initializers.zeros())
         # caps_doc = tf.reduce_sum(caps_doc * alpha[:, :, None], axis=1)
+
+        usr_emb_softmax = var('usr_emb_softmax', [self.usr_cnt, self.hidden_size], self.emb_initializer)
+        prd_emb_softmax = var('prd_emb_softmax', [self.prd_cnt, self.hidden_size], self.emb_initializer)
+        usr_softmax = lookup(usr_emb_softmax, usrid)
+        prd_softmax = lookup(prd_emb_softmax, prdid)
+
         caps_doc = tf.layers.flatten(caps_doc)
-        caps_doc = tf.concat([usr, prd, caps_doc], axis=1)
+        caps_doc = tf.concat([usr_softmax, prd_softmax, caps_doc], axis=1)
         caps_doc = tf.layers.dense(caps_doc, self.hidden_size, activation=None)
         outputs = tf.layers.dense(caps_doc, self.cls_cnt)
 
@@ -176,13 +189,13 @@ class CSC(object):
                  input_map['content'], input_map['rating'],
                  input_map['sen_len'], input_map['doc_len'])
 
-            usr = lookup(self.embeddings['usr_emb'], usrid, name='cur_usr_embedding')
-            prd = lookup(self.embeddings['prd_emb'], prdid, name='cur_prd_embedding')
+            # usr = lookup(self.embeddings['usr_emb'], usrid, name='cur_usr_embedding')
+            # prd = lookup(self.embeddings['prd_emb'], prdid, name='cur_prd_embedding')
             input_x = lookup(self.embeddings['wrd_emb'], input_x, name='cur_wrd_embedding')
 
         # build the process of model
         d_hat = self.csc(input_x, self.max_sen_len, self.max_doc_len,
-                         sen_len, doc_len, usr, prd)
+                         sen_len, doc_len, usrid, prdid)
         prediction = tf.argmax(d_hat, 1, name='prediction')
         # predictionu = tf.argmax(d_hatu, 1, name='predictionu')
         # predictionp = tf.argmax(d_hatp, 1, name='predictionp')
@@ -242,7 +255,7 @@ class CSC(object):
 
         for grad, var in grads_and_vars:
             if var is self.embeddings['wrd_emb']:
-                grad = tf.IndexedSlices(grad.values * 1e-5 * tf.cast(global_step > 4000, tf.float32),
+                grad = tf.IndexedSlices(grad.values * 1e-5 * tf.cast(global_step > self.words_train_step, tf.float32),
                                         grad.indices, grad.dense_shape)
             capped_grads_and_vars.append((grad, var))
 

@@ -46,7 +46,9 @@ params = {
                          ("lambda2", .3, "proportion of the loss of user block"),
                          ("lambda3", .3, "proportion of the loss of product block"),
                          ("bilstm", True, "use biLSTM or LSTM"),
-                         ("sen_aspect_cnt", 3, "number of hops in document layer"),
+                         ("split_by_sentence", False, "whether to split the document by sentences or fixed length"),
+                         ("words_train_step", 4000, "At which step start training word embeddings"),
+                         ("sen_aspect_cnt", 2, "number of hops in document layer"),
                          ("doc_aspect_cnt", 3, "number of hops in document layer")],
     'training_params': [("batch_size", 100, "Batch Size"),
                         ("epoch_cnt", 50, "Number of training epochs"),
@@ -94,11 +96,11 @@ with tf.Graph().as_default():
     datasets = ['data/' + flags.dataset + s for s in ['/train.ss', '/dev.ss', '/test.ss']]
     tfrecords = ['data/' + flags.dataset + s for s in ['/train.tfrecord', '/dev.tfrecord', '/test.tfrecord']]
     stats_filename = 'data/' + flags.dataset + '/stats.txt'
-    embeddingpath = 'data/' + flags.dataset + '/embedding.txt'
-    hierarchy = flags.model in ['csc', 'flatten', 'conv', 'lstm']
+    embeddingpath = 'data/' + flags.dataset + '/embedding' + str(flags.emb_dim) + '.txt'
+    hierarchy = flags.split_by_sentence
     datasets, lengths, embedding, usr_cnt, prd_cnt, wrd_dict = \
         data.build_dataset(datasets, tfrecords, stats_filename, embeddingpath, flags.max_doc_len,
-                           flags.max_sen_len, hierarchy)
+                           flags.max_sen_len, hierarchy, flags.emb_dim)
     trainset, devset, testset = datasets
     trainlen, devlen, testlen = lengths
     trainset = trainset.shuffle(300000).batch(flags.batch_size)
@@ -125,7 +127,9 @@ with tf.Graph().as_default():
             'sen_aspect_cnt': flags.sen_aspect_cnt,
             'doc_aspect_cnt': flags.doc_aspect_cnt,
             'debug': flags.debug,
-            'lambda1': flags.lambda1, 'lambda2': flags.lambda2, 'lambda3': flags.lambda3}
+            'lambda1': flags.lambda1, 'lambda2': flags.lambda2, 'lambda3': flags.lambda3,
+            'batch_size': flags.batch_size,
+            'words_train_step': flags.words_train_step}
         models = {'csc': (model.CSC, model),
                   'flatten': (flatten_model.CSC, flatten_model),
                   'nh': (non_hierarchy.NH, non_hierarchy),

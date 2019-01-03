@@ -1,9 +1,9 @@
 from __future__ import absolute_import
 
 from capslayer import layers
-from capslayer import data
+# from capslayer import data
 from capslayer.ops import losses
-from capslayer import summary
+# from capslayer import summary
 from capslayer.ops.losses import losses
 
 from capslayer.ops.nn_ops import space_to_batch_nd_v1 as space_to_batch_nd
