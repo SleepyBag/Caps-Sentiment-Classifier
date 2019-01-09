@@ -20,6 +20,7 @@ from __future__ import print_function
 import numpy as np
 import capslayer as cl
 import tensorflow as tf
+from attention import attention
 
 
 def routing(votes,

@@ -67,9 +67,9 @@ class CSC(object):
         self.batch_size = args['batch_size']
         self.words_train_step = args['words_train_step']
         # self.debug = args['debug']
-        # self.lambda1 = args['lambda1']
-        # self.lambda2 = args['lambda2']
-        # self.lambda3 = args['lambda3']
+        self.lambda1 = args['lambda1']
+        self.lambda2 = args['lambda2']
+        self.lambda3 = args['lambda3']
 
         self.best_dev_acc = .0
         self.best_test_acc = .0
@@ -177,11 +177,13 @@ class CSC(object):
         # caps_doc = tf.reduce_sum(caps_doc, axis=1)
 
         caps_doc = tf.layers.flatten(caps_doc)
-        caps_doc = tf.concat([usr_softmax, prd_softmax, caps_doc], axis=1)
-        caps_doc = tf.layers.dense(caps_doc, self.hidden_size, activation=None)
-        outputs = tf.layers.dense(caps_doc, self.cls_cnt)
 
-        return outputs
+        usr_output = tf.layers.dense(tf.concat([usr_softmax, tf.stop_gradient(caps_doc)], axis=1), self.cls_cnt)
+        prd_output = tf.layers.dense(tf.concat([prd_softmax, tf.stop_gradient(caps_doc)], axis=1), self.cls_cnt)
+        outputs = tf.layers.dense(tf.concat([usr_softmax, prd_softmax, caps_doc], axis=1), self.hidden_size, activation=None)
+        outputs = tf.layers.dense(outputs, self.cls_cnt)
+
+        return usr_output, prd_output, outputs
 
     def build(self, data_iter):
         # get the inputs
@@ -197,15 +199,18 @@ class CSC(object):
             input_x = lookup(self.embeddings['wrd_emb'], input_x, name='cur_wrd_embedding')
 
         # build the process of model
-        d_hat = self.csc(input_x, self.max_sen_len, self.max_doc_len,
+        d_hatu, d_hatp, d_hat = self.csc(input_x, self.max_sen_len, self.max_doc_len,
                          sen_len, doc_len, usrid, prdid)
         prediction = tf.argmax(d_hat, 1, name='prediction')
-        # predictionu = tf.argmax(d_hatu, 1, name='predictionu')
-        # predictionp = tf.argmax(d_hatp, 1, name='predictionp')
+        predictionu = tf.argmax(d_hatu, 1, name='predictionu')
+        predictionp = tf.argmax(d_hatp, 1, name='predictionp')
 
         with tf.variable_scope("loss"):
             sce = tf.nn.softmax_cross_entropy_with_logits_v2
-            self.loss = sce(logits=d_hat, labels=tf.one_hot(input_y, self.cls_cnt))
+            loss = sce(logits=d_hat, labels=tf.one_hot(input_y, self.cls_cnt))
+            lossu = sce(logits=d_hatu, labels=tf.one_hot(input_y, self.cls_cnt))
+            lossp = sce(logits=d_hatp, labels=tf.one_hot(input_y, self.cls_cnt))
+            self.loss = self.lambda1 * loss + self.lambda2 * lossu + self.lambda3 * lossp
             # y = tf.one_hot(input_y, self.cls_cnt)
             # sign = 2 * y - 1
             # M = .8 * y + .1

@@ -4,6 +4,7 @@ from functools import partial
 import numpy as np
 import os
 import csv
+import word2vec as w2v
 
 
 reading_col_name = ['usr', 'prd', 'rating', 'content']
@@ -11,8 +12,10 @@ output_col_name = ['usr', 'prd', 'rating', 'content', 'doc_len', 'sen_len']
 
 
 def build_dataset(filenames, tfrecords_filenames, stats_filename, embedding_filename,
-                  max_doc_len, max_sen_len, hierarchy, emb_dim):
+                  max_doc_len, max_sen_len, hierarchy, emb_dim, text_filename):
     datasets = []
+    if not os.path.exists(embedding_filename):
+        w2v.word2vec(text_filename, embedding_filename, size=emb_dim, binary=0, cbow=0, verbose=True)
     wrd_dict, wrd_index, embedding = load_embedding(embedding_filename, emb_dim)
 
     tfrecords_filenames = [i + str(hierarchy) + str(max_doc_len) + str(max_sen_len) for i in tfrecords_filenames]

@@ -14,6 +14,7 @@ import lstm
 import non_hierarchy
 from colored import fg, stylize
 import math
+import split_model
 
 
 # delete all flags that remained by last run
@@ -97,10 +98,11 @@ with tf.Graph().as_default():
     tfrecords = ['data/' + flags.dataset + s for s in ['/train.tfrecord', '/dev.tfrecord', '/test.tfrecord']]
     stats_filename = 'data/' + flags.dataset + '/stats.txt'
     embeddingpath = 'data/' + flags.dataset + '/embedding' + str(flags.emb_dim) + '.txt'
+    text_filename = 'data/' + flags.dataset + '/text'
     hierarchy = flags.split_by_sentence
     datasets, lengths, embedding, usr_cnt, prd_cnt, wrd_dict = \
         data.build_dataset(datasets, tfrecords, stats_filename, embeddingpath, flags.max_doc_len,
-                           flags.max_sen_len, hierarchy, flags.emb_dim)
+                           flags.max_sen_len, hierarchy, flags.emb_dim, text_filename)
     trainset, devset, testset = datasets
     trainlen, devlen, testlen = lengths
     trainset = trainset.shuffle(300000).batch(flags.batch_size)
@@ -132,6 +134,7 @@ with tf.Graph().as_default():
             'words_train_step': flags.words_train_step}
         models = {'csc': (model.CSC, model),
                   'flatten': (flatten_model.CSC, flatten_model),
+                  'split': (split_model.CSC, split_model),
                   'nh': (non_hierarchy.NH, non_hierarchy),
                   'lstm': (lstm.LSTM, lstm),
                   'conv': (conv.CONV, conv)
